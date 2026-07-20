@@ -1,0 +1,29 @@
+[project]
+name = "amazon-books-etl-AWS"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "PyYAML",
+    "python-dotenv",
+    "dbt-core",
+    "boto3",
+]
+
+[project.optional-dependencies]
+scrape = ["requests", "beautifulsoup4", "pandas", "PyYAML"]
+
+[dependency-groups]
+dev = ["pytest", "ruff", "pyright"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# W DAG-ach sys.path.insert MUSI wykonać się przed importami lokalnymi (from main import ...),
+# więc importy nie mogą być na samej górze pliku — E402 jest tu fałszywie pozytywny.
+"airflow/dags/*" = ["E402"]
+# Test importuje config po sys.path.insert (jak DAG-i) — E402 fałszywie pozytywny.
+"tests/test_branch_start.py" = ["E402"]
