@@ -3,5 +3,7 @@ version: 2
 sources:
   - name: bronze
     schema: bronze
+    meta:
+      external_location: "dbt_project/seeds/dev_data/{name}.csv"
     tables:
       - name: books

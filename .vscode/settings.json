@@ -1,0 +1,13 @@
+{
+    "duckdb.databases": [
+        {
+            "alias": "dev",
+            "type": "file",
+            "path": "/home/mycka/projects/amazon_books_ETL_AWS/dev.duckdb",
+            "readOnly": true,
+            "attached": false
+        }
+    ],
+    "duckdb.defaultDatabase": "dev",
+    "python.analysis.typeCheckingMode": "basic"
+}

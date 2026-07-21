@@ -29,12 +29,16 @@ class DatabaseConfig(BaseModel):
     db_schema: str = Field(alias="schema")
     table: str
 
+class AwsConfig(BaseModel):
+    bucket: str
+    region: str
+    raw_prefix: str
 
 class Config(BaseModel):
     scraper: ScraperConfig
     storage: StorageConfig
     database: DatabaseConfig
-
+    aws: AwsConfig
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 

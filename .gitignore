@@ -24,6 +24,10 @@ dbt_project/target/
 dbt_project/logs/
 dbt_project/dbt_packages/
 
+# dbt-duckdb — lokalny plik bazy (dev-loop), nie commitować
+*.duckdb
+*.duckdb.wal
+
 # Claude Code
 .claude/
 CLAUDE.md

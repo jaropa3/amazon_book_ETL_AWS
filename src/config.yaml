@@ -9,8 +9,13 @@ scraper:
     max: 4
 
 storage:
-  raw_data_dir: "data/raw_data"
+  raw_data_dir: "/home/mycka/projects/amazon_books_ETL_AWS/data/raw_data"
 
 database:
   schema: bronze
   table: books
+
+aws:
+  bucket: "amazon-books-etl-aws-915238109570"
+  region: "eu-central-1"
+  raw_prefix: "raw/"

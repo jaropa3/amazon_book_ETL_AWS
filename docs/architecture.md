@@ -1,5 +1,27 @@
 # Architektura projektu
 
+## Roadmap migracji na AWS
+
+> Diagram i opis poniżej opisują **v1** (Postgres + Airflow) — dokument czeka na pełne przepisanie
+> pod docelową architekturę S3/Glue/Athena/Step Functions. Do tego czasu, status faz:
+
+| Faza | Zakres | Status |
+|---|---|---|
+| 0 | Konto AWS — MFA, budżet, IAM user, AWS CLI | ✅ zrobione |
+| A | Szkielet repo — `git init`, chude `pyproject.toml`, usunięcie testów Airflow/Postgres | ✅ zrobione |
+| B | `CLAUDE.md` pod AWS | ✅ zrobione (ten plik — `architecture.md` — nadal czeka na pełny przepis) |
+| C | S3 — bucket + `save_books_to_csv()` → `boto3.put_object`, partycja `dt=YYYY-MM-DD/` | ✅ zrobione, zweryfikowane end-to-end (realny plik w S3) |
+| — | Lokalny dev-loop dbt: `dbt-duckdb`, `source()` jako widok nad fixture CSV | ✅ zrobione (5/5 modeli, 19/19 testów) |
+| E | Lambda — deploy scrapera (handler, pakowanie, IAM rola) przez konsolę AWS | 🔧 w trakcie |
+| F | Glue — Data Catalog (`bronze`) + Crawler nad `s3://.../raw/` | ⏳ zaplanowane |
+| G | dbt na Athenie — gdzie faktycznie się odpala `dbt run` (Lambda / Fargate / ręcznie) | ⏳ decyzja otwarta |
+| H | Step Functions + EventBridge — spięcie E→F→G, harmonogram (odpowiednik DAG-a z v1) | ⏳ zaplanowane |
+| I | CI/CD — GitHub Actions → `aws lambda update-function-code`, auth przez OIDC (bez statycznych kluczy w Secrets) | ⏳ zaplanowane, po E–H |
+
+Infrastruktura w fazach E–H stawiana **ręcznie przez konsolę AWS** (świadoma decyzja: nauka,
+widoczność każdego zasobu — nie Terraform/CDK). Faza I automatyzuje tylko **kod** wrzucany do już
+istniejącej Lambdy, nie samą infrastrukturę.
+
 ```mermaid
 flowchart TD
     subgraph SRC["Źródło danych"]

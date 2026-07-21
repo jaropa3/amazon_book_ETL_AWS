@@ -23,6 +23,7 @@ def _valid_dict() -> dict:
         },
         "storage": {"raw_data_dir": "data/raw_data"},
         "database": {"schema": "bronze", "table": "books"},
+        "aws": {"bucket": "test-bucket", "region": "eu-central-1", "raw_prefix": "raw/"},
     }
 
 

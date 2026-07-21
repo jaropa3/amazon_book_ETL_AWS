@@ -1,17 +1,18 @@
-import os
+import csv
+import io
 import re
 import random
 import time
 from datetime import datetime, timezone
-import pandas as pd
+import boto3
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from config import CONFIG
 from logger import setup_logger
 
+load_dotenv()  # AWS_PROFILE (i inne) z .env → os.environ, zanim boto3.client() ich szuka
 logger = setup_logger("Amazon_books_ETL")
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-RAW_DATA_DIR = os.path.join(PROJECT_DIR, CONFIG.storage.raw_data_dir)
 SCRAPER_CFG = CONFIG.scraper
 
 USER_AGENTS = [
@@ -20,7 +21,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
 ]
-
 def build_headers() -> dict[str, str]:
     return {
         "User-Agent": random.choice(USER_AGENTS),
@@ -63,15 +63,23 @@ def _get_with_retry(url: str, max_retries: int = SCRAPER_CFG.max_retries, backof
 
     return response
 
-def save_books_to_csv(books: list[dict]) -> None:
-    os.makedirs(RAW_DATA_DIR, exist_ok=True)
+def save_books_to_csv(books: list[dict]) -> str:
     scraped_at = datetime.now(timezone.utc)  # UTC-aware — isoformat() dokłada offset +00:00
     timestamp = scraped_at.strftime("%Y%m%d_%H%M%S")
-    filepath = os.path.join(RAW_DATA_DIR, f"books_{timestamp}.csv")
-    df = pd.DataFrame(books)
-    df["scraped_at"] = scraped_at.isoformat()
-    df.to_csv(filepath, index=False)
-    logger.info("zapisano %d wierszy do %s", len(df), filepath)
+    date_partition = scraped_at.strftime("%Y-%m-%d")
+    key = f"{CONFIG.aws.raw_prefix}dt={date_partition}/books_{timestamp}.csv"
+
+    fieldnames = [*books[0].keys(), "scraped_at"]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for book in books:
+        writer.writerow({**book, "scraped_at": scraped_at.isoformat()})
+
+    s3 = boto3.client("s3", region_name=CONFIG.aws.region)
+    s3.put_object(Bucket=CONFIG.aws.bucket, Key=key, Body=buffer.getvalue().encode("utf-8"))
+    logger.info("zapisano %d wierszy do s3://%s/%s", len(books), CONFIG.aws.bucket, key)
+    return key
 
 def parse_books(html: bytes | str) -> list[dict]:
     """Parsuje HTML strony wyników → lista książek. Czysta funkcja: bez sieci i I/O."""
@@ -135,6 +143,13 @@ def scrape_to_csv(num_pages: int = SCRAPER_CFG.num_pages) -> int:
 
 def main() -> None:
     scrape_to_csv()
+
+
+def handler(event, context):
+    """Entry point AWS Lambda. `event`/`context` niewykorzystywane — brak parametrów wejściowych."""
+    count = scrape_to_csv()
+    logger.info("Lambda invocation zakończona, zescrapowano %d książek", count)
+    return {"scraped_count": count}
 
 
 if __name__ == "__main__":
