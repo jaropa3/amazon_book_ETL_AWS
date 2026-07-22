@@ -38,3 +38,10 @@ docs/*
 
 # moje notatki
 NOTEBOOK.md
+
+# scrape.yml — tymczasowo przeniesiony ze .github/workflows/, nie commitować w tej formie
+scripts/scrape.yml
+
+# Lambda — artefakty pakowania (regenerowalne, nie źródło)
+build/
+lambda_scraper.zip
