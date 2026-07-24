@@ -4,7 +4,7 @@
 ) }}
 
 select
-    md5(asin || '_' || scraped_at::text) as book_sk,
+    to_hex(md5(to_utf8(asin || '_' || cast(scraped_at as varchar)))) as book_sk,
     asin,
     title,
     author,

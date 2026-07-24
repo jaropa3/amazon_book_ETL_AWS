@@ -11,13 +11,13 @@
 with rejected as (
     -- rekordy z bronze odrzucone w staging (brak asin)
     select
-        cast(null as text) as asin,
+        cast(null as varchar) as asin,
         title,
         author,
         price,
-        scraped_at::timestamptz as scraped_at,
+        cast(from_iso8601_timestamp(scraped_at) at time zone 'UTC' as timestamp) as scraped_at,
         'brak asin' as rejection_reason
-    from {{ source('bronze', 'books') }}
+    from {{ source('bronze', 'raw') }}
     where asin is null
 
     union all
@@ -27,7 +27,7 @@ with rejected as (
         asin,
         title,
         author,
-        price::text,
+        cast(price as varchar),
         scraped_at,
         'duplikat w sesji (asin+scraped_at)' as rejection_reason
     from (
@@ -43,11 +43,11 @@ with rejected as (
 )
 
 select
-    md5(
+    to_hex(md5(to_utf8(
         coalesce(asin, '') || '|' || coalesce(title, '') || '|' || coalesce(author, '')
-        || '|' || coalesce(price::text, '') || '|' || coalesce(scraped_at::text, '')
+        || '|' || coalesce(cast(price as varchar), '') || '|' || coalesce(cast(scraped_at as varchar), '')
         || '|' || rejection_reason
-    ) as rejected_sk,
+    ))) as rejected_sk,
     asin,
     title,
     author,

@@ -71,7 +71,7 @@ def save_books_to_csv(books: list[dict]) -> str:
 
     fieldnames = [*books[0].keys(), "scraped_at"]
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, lineterminator="\n")
     writer.writeheader()
     for book in books:
         writer.writerow({**book, "scraped_at": scraped_at.isoformat()})
@@ -88,7 +88,7 @@ def parse_books(html: bytes | str) -> list[dict]:
     books = []
     for book in containers:
         title = book.find("h2")
-        author = book.find("a", href=lambda h: h and re.search(r'^/[^/]+/e/[A-Z0-9]{10}', h))
+        author = book.find("a", href=lambda h: bool(h and re.search(r'^/[^/]+/e/[A-Z0-9]{10}', h)))
         price = book.find("span", {"class": "a-offscreen"})
         rating = book.find("span", {"class": "a-icon-alt"})
         if title and author:
@@ -146,7 +146,8 @@ def main() -> None:
 
 
 def handler(event, context):
-    """Entry point AWS Lambda. `event`/`context` niewykorzystywane — brak parametrów wejściowych."""
+    """Entry point AWS Lambda. `event`/`context` niewykorzystywane — brak parametrów wejściowych.
+    To wymóg platformy: Lambda na AWS zawsze wywołuje handler z tymi dwoma argumentami, niezależnie czy funkcja ich potrzebuje."""
     count = scrape_to_csv()
     logger.info("Lambda invocation zakończona, zescrapowano %d książek", count)
     return {"scraped_count": count}

@@ -1,0 +1,11 @@
+amazon_books_etl_aws:
+  target: athena
+  outputs:
+    athena:
+      type: athena
+      s3_staging_dir: 's3://amazon-books-etl-aws-915238109570/athena-results/'
+      region_name: 'eu-central-1'
+      database: 'awsdatacatalog'
+      schema: 'bronze'
+      work_group: 'primary'
+      threads: 4

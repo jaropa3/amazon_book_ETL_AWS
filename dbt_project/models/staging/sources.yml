@@ -6,4 +6,4 @@ sources:
     meta:
       external_location: "dbt_project/seeds/dev_data/{name}.csv"
     tables:
-      - name: books
+      - name: raw

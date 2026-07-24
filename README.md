@@ -1,113 +1,143 @@
-# amazon_books_ETL
+# amazon_books_ETL_AWS
 
-![tests](https://github.com/jaropa3/amazon_book_ETL/actions/workflows/tests.yml/badge.svg)
+![tests](https://github.com/jaropa3/amazon_book_ETL_AWS/actions/workflows/tests.yml/badge.svg)
 
-Pipeline ETL scrapujący książki z Amazona i ładujący je do PostgreSQL w architekturze
-warstwowej (bronze → staging → intermediate → gold) z transformacjami w dbt i orkiestracją
-w Apache Airflow.
+Serverless pipeline ETL na AWS: scrapuje książki z Amazona, ląduje je w S3, transformuje przez
+dbt na Athena (Trino) w architekturze warstwowej (bronze → staging → intermediate → marts), a
+całość orkiestruje Step Functions na godzinnym harmonogramie (EventBridge). To migracja
+[wersji on-prem](https://github.com/jaropa3/amazon_book_ETL) (Airflow + PostgreSQL) — v1 jest
+zamrożona jako osobny artefakt portfolio, ten projekt to niezależny, w pełni chmurowy przepis
+tego samego problemu.
 
 ## Stack
 
-**Python 3.14** · **PostgreSQL** · **dbt** · **Apache Airflow** · **pandas** · **BeautifulSoup** · **pytest** · **GitHub Actions (CI)**
+**Python 3.14** · **AWS Lambda** · **S3** · **Glue Data Catalog** · **Athena (Trino)** · **dbt** ·
+**Docker + ECS Fargate** · **Step Functions** · **EventBridge** · **pytest** · **GitHub Actions (CI)**
 
 ## Architektura
 
-Warstwy: `scraper → CSV → bronze → dbt (staging → intermediate → gold) → logi`.
-Bronze zawiera dane z **jednej sesji** (TRUNCATE przed każdym ingestem); historia kumuluje się
-w warstwie gold i w plikach CSV.
+```
+Lambda (scraper) → S3 raw/dt=YYYY-MM-DD/
+        ↓ (Step Functions, co godzinę)
+MSCK REPAIR TABLE bronze.raw (dogrywa nowe partycje)
+        ↓
+ECS Fargate (kontener dbt) → dbt run --target athena: staging → intermediate → marts
+        ↓
+log przebiegu → S3 + Athena
+```
 
-📐 **Pełny diagram przepływu i decyzje architektoniczne: [docs/architecture.md](docs/architecture.md)**
+📐 **Pełny diagram, przepływ danych i decyzje architektoniczne: [docs/architecture.md](docs/architecture.md)**
 
 ## Wymagania
 
-- **Python 3.14** + virtualenv (`.venv`)
-- **Docker** — PostgreSQL działa w kontenerze (host `host.docker.internal`)
-- **PostgreSQL** — baza docelowa pipeline'u
+- **Python 3.14** + [uv](https://docs.astral.sh/uv/)
+- **Konto AWS** z skonfigurowanym profilem CLI (`aws configure --profile <nazwa>`) — do lokalnego
+  uruchomienia scrapera/dbt przeciwko realnym zasobom
+- **Docker** — tylko do budowania obrazu dbt pod ECS Fargate (`docker/Dockerfile`)
+
+> [!note] Ten projekt to nie "sklonuj i odpal jednym poleceniem"
+> To jest w pełni wdrożona infrastruktura chmurowa na koncie AWS autora (Lambda, S3, Glue, ECS,
+> Step Functions, EventBridge) — świadomie stawiana ręcznie (CLI/konsola), nie przez Terraform/CDK.
+> Sklonowanie repo daje Ci **kod** (scraper, modele dbt, Dockerfile) do przeczytania i uruchomienia
+> lokalnie/na własnym koncie AWS — nie odtworzy automatycznie cudzej infrastruktury.
 
 ## Konfiguracja
 
-**1. Zmienne środowiskowe** — utwórz plik `.env` w katalogu głównym (jest w `.gitignore`, nie trafia do repo):
-
-```env
-POSTGRES_DB=amazon_books
-POSTGRES_HOST=host.docker.internal
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=twoje_haslo
-POSTGRES_PORT=5432
-```
-
-**2. Parametry pipeline'u** — `config.yaml` (scraper, ścieżki, schemat DB):
-
-```yaml
-scraper:
-  base_url: "https://www.amazon.com/s"
-  keyword: "data engineering"
-  num_pages: 5
-  max_retries: 4
-  backoff_base: 2
-  delay_between_pages: { min: 2, max: 4 }
-
-storage:
-  raw_data_dir: "data/raw_data"
-
-database:
-  schema: bronze
-  table: books
-```
-
-**3. Profil dbt** — `~/.dbt/profiles.yml` (poza repozytorium).
-
-**4. Schemat bazy** — postaw schemat i tabelę bronze **przed pierwszym runem** (DDL żyje poza pipeline'em, w [sql/schema.sql](sql/schema.sql); komenda idempotentna, uruchom raz):
-
+**1. Zależności:**
 ```bash
-python scripts/init_db.py
+uv sync
+source .venv/bin/activate
 ```
+
+**2. `.env`** — skopiuj [`.env.example`](.env.example) i wskaż własny profil AWS:
+```bash
+cp .env.example .env
+```
+
+**3. `src/config.yaml`** — parametry scrapera + `aws:` (bucket/region/prefix na **Twoim** koncie,
+jeśli chcesz zapisywać do własnego S3, nie autora).
+
+**4. Profil dbt** — `~/.dbt/profiles.yml`, klucz `amazon_books_etl_aws` z targetami `dev`
+(DuckDB — świadomie nieutrzymywany, patrz Decisions) i `athena` (wymaga własnego Glue Data
+Catalog + bucketu wyników Athena).
 
 ## Uruchomienie
 
 ```bash
-source .venv/bin/activate
+# scraper — lokalnie, zapisuje do S3
+python src/main.py
 
-# pełny pipeline (scrape → ingest)
-python main.py
+# dbt lokalnie, na realnej Athenie (jeśli masz skonfigurowany target athena)
+dbt run --project-dir dbt_project --profiles-dir ~/.dbt --target athena
 
-# transformacje dbt
-dbt --project-dir dbt_project --profiles-dir ~/.dbt run
-dbt --project-dir dbt_project --profiles-dir ~/.dbt test
+# cały pipeline w chmurze, ręcznie (poza harmonogramem co godzinę)
+aws stepfunctions start-execution \
+  --state-machine-arn arn:aws:states:eu-central-1:<account-id>:stateMachine:amazon-books-pipeline \
+  --input "{}" --profile <twój-profil>
 ```
 
-Airflow (uruchomienie lokalne):
-
+Build i deploy obrazu dbt pod ECS Fargate:
 ```bash
-export AIRFLOW_HOME=~/projects/amazon_books_ETL/airflow
-airflow db migrate
-airflow webserver -p 8080 &
-airflow scheduler &
+docker build -f docker/Dockerfile -t dbt-runner .
+docker tag dbt-runner:latest <account-id>.dkr.ecr.eu-central-1.amazonaws.com/dbt-runner:latest
+docker push <account-id>.dkr.ecr.eu-central-1.amazonaws.com/dbt-runner:latest
 ```
 
 ## Testy i CI
 
-Testy kodu (pytest) — czyste funkcje scrapera, bez sieci i bazy:
-
 ```bash
-pytest            # albo: pytest -v
+pytest        # testy kodu — scraper, config, bez sieci/AWS
+ruff check .
 ```
 
-Testy uruchamiają się **automatycznie po każdym push i pull requeście** przez GitHub Actions
-([.github/workflows/tests.yml](.github/workflows/tests.yml)). Testy danych (jakość) są osobno,
-w warstwie dbt (`dbt test`) i odpalają się w każdym runie pipeline'u.
+Testy uruchamiają się automatycznie po każdym push/PR ([.github/workflows/tests.yml](.github/workflows/tests.yml)).
+Testy jakości danych są osobno, w warstwie dbt (`dbt_project/tests/`, `schema.yml`) i odpalają się
+co godzinę wraz z pipeline'em, nie w CI.
 
 ## Decisions & trade-offs
 
-- **DDL poza pipeline'em ([sql/schema.sql](sql/schema.sql) + [scripts/init_db.py](scripts/init_db.py)), nie w `ingest.py`.** Schemat bronze jest stabilny i znany downstreamowi (dbt), więc definicja tabeli żyje w jednym miejscu i jest stawiana raz — a nie odtwarzana przez `ALTER TABLE ... ADD COLUMN` przy każdym runie. Zysk: nieznana kolumna w CSV pada od razu (Fail Fast) zamiast po cichu rozjechać kontrakt z dbt. Koszt: trzeba pamiętać o kroku standupu po `git clone` (punkt 4 w Konfiguracji).
-- **Jeden `schema.sql`, bez narzędzia migracyjnego (Alembic/yoyo).** Przy jednej stabilnej tabeli narzędzie migracyjne to narzut bez zysku (ang. YAGNI). Świadomie odłożone do chwili, gdy schemat zacznie ewoluować na żywej bazie albo dojdzie wiele tabel/środowisk — wtedy `schema.sql` staje się `sql/migrations/0001_init.sql` + runner z tabelą `schema_migrations`.
+- **Cała baza i cały projekt w chmurze — zero lokalnego Postgresa jako mostku.** v1 (Postgres,
+  ten sam fizyczny serwer co produkcja) jest zamrożona; ten projekt świadomie nie współdzieli z
+  nią żadnego stanu, nawet tymczasowo.
+- **`MSCK REPAIR TABLE`, nie Glue Crawler, do bieżącego dogrywania partycji.** Crawler przy
+  każdym pełnym rekrawlu tej samej wielopartycyjnej tabeli potrafił rozbić ją na osobne tabele
+  per partycja — powtórzyło się dwukrotnie mimo identycznego schematu. Crawler zostaje jako
+  narzędzie **jednorazowe** (ustalenie schematu nowej tabeli), nie krok pipeline'u. Koszt: jeśli
+  format źródłowych danych się zmieni, trzeba świadomie odpalić crawler ręcznie, nie stanie się
+  to samo.
+- **dbt jako kontener na ECS Fargate, nie Lambda ani Glue Python Shell.** Zweryfikowane
+  wyszukiwaniem, nie tylko intuicją: to najczęściej dokumentowany wzorzec społeczności dla
+  dbt-core w produkcji na AWS. Lambda ma twardy limit 15 min i koncepcyjnie nie pasuje do ETL
+  (rośnie z czasem, w przeciwieństwie do scrapera o stałym rozmiarze); Glue Python Shell nie miał
+  realnego pokrycia w praktyce, mimo że technicznie działa.
+- **Step Functions + EventBridge, nie MWAA (zarządzany Airflow).** MWAA rozlicza się za
+  **istnienie** środowiska (~$0.49/h, 24/7), nie za wykonanie — nieproporcjonalny koszt dla
+  rzadkiego, godzinowego pipeline'u. Koszt: mniej "gotowej z pudełka" obserwowalności niż Airflow
+  (stąd własny log przebiegu, patrz niżej), i mniej ekspresyjny język przepływu (ASL/JSONata) niż
+  Python DAG-a.
+- **Log przebiegu do S3 + Athena, nie DynamoDB.** Zero nowej usługi, spójność z resztą stacku —
+  wszystko zapytywalne tym samym SQL-em. Koszt: odczyt statusu ostatniego runu to sekundy (start
+  zapytania Athena), nie milisekundy jak przy KV store — nieistotne przy sporadycznym sprawdzaniu.
+- **Brak filtra czasowego w modelach incremental (`fct_books_history`, `rejected_books`).**
+  Każdy `dbt run` skanuje całe `bronze.raw` i robi idempotentny merge po kluczu biznesowym —
+  spóźniona partycja (np. po awarii wcześniejszego przebiegu) zostaje złapana automatycznie przy
+  najbliższym udanym runie. To ta sama decyzja co w v1, tylko bez jawnego mechanizmu FIFO/backlog
+  — ochrona jest wpisana w sposób budowania modelu, nie w osobny krok wykrywania zaległości.
 
 ### Co bym poprawił
 
-- **`COPY` zamiast `executemany`** w `ingest.py` — szybszy bulk load.
-- **`csv → parquet`** w warstwie raw (format kolumnowy, mniejszy skan).
+- **Infrastruktura tylko w CLI/konsoli, bez Terraform/CDK** — świadoma decyzja na czas nauki, ale
+  odtworzenie tego środowiska od zera dziś wymaga pamiętania ~20 komend z historii, nie jednego
+  `terraform apply`.
+- **Brak alertów (Slack) przy nieudanym przebiegu** — dziś jedyny sposób, żeby dowiedzieć się o
+  porażce, to ręcznie sprawdzić konsolę Step Functions.
+- **Region (`eu-central-1`) i ARN-y konta wpisane wprost w kod/definicje**, nie parametryzowane —
+  wystarczające dla jednego środowiska, nie przenośne bez ręcznej podmiany.
+- **`MSCK REPAIR` skanuje cały prefiks S3 co przebieg** — przy realnym wzroście liczby partycji
+  (setki/tysiące dni) warto rozważyć Partition Projection w Athenie (deklaratywne partycje bez
+  rejestrowania każdej osobno w katalogu) zamiast skanowania.
 
 ## Dokumentacja
 
 - [Architektura](docs/architecture.md)
-
+- [Notatki z sesji nauki](docs/notes/) — koncepty AWS/data engineering poznane przy budowie tego projektu
