@@ -1,4 +1,8 @@
-{{ config(materialized='table') }}
+-- Iceberg here follows fct_books_history upstream, it is not an independent preference:
+-- Iceberg stores timestamps as timestamp(6) and a Hive/Parquet CTAS only accepts milliseconds,
+-- so reading scraped_at from the fact into a Hive table fails outright. Casting down to
+-- timestamp(3) would hide a format mismatch behind silent precision loss.
+{{ config(materialized='table', table_type='iceberg') }}
 
 with history as (
     select * from {{ ref('fct_books_history') }}

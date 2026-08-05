@@ -29,6 +29,14 @@ clean-targets:         # directories to be removed by `dbt clean`
 # In this example config, we tell dbt to build all models in the example/
 # directory as views. These settings can be overridden in the individual model
 # files using the `{{ config(...) }}` macro.
+seeds:
+  amazon_books_etl_aws:
+    dev_data:
+      # DuckDB fixture only. `dbt build` (unlike `dbt run`) also materializes seeds, which on
+      # the athena target would create a duplicate of the real bronze.raw source.
+      +enabled: "{{ target.name == 'dev' }}"
+
+# Configuring models
 models:
   amazon_books_etl_aws:
     staging:
