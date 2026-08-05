@@ -1,0 +1,6 @@
+{
+    "Name": "amazon-books-schedule",
+    "ScheduleExpression": "rate(1 hour)",
+    "State": "ENABLED",
+    "Description": ""
+}
