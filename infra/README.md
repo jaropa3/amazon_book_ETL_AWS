@@ -20,6 +20,12 @@ git diff infra/
 | `stepfunctions-amazon-books-pipeline.json` | definicja state machine `amazon-books-pipeline` |
 | `eventbridge-amazon-books-schedule.json` | reguła harmonogramu (`rate(1 hour)`) |
 | `ecs-taskdef-dbt-runner.json` | task definition `dbt-runner` (Fargate) |
+| `iam-ecs-task-role-policy.json` | uprawnienia roli zadania ECS (S3 + Glue + Athena) |
+| `iam-ecs-task-trust-policy.json` | trust policy tej roli — `aws:SourceArn` zawęża ją do `eu-central-1` |
+
+Dwa ostatnie pliki leżały wcześniej w `docker/`, choć ani `docker build`, ani runtime kontenera
+ich nie czyta — to dokumenty polityk wklejane w konsoli IAM. Były pisane ręcznie, więc mogły
+rozjechać się z tym, co faktycznie wisi na roli; teraz są zrzucane z AWS jak reszta.
 
 ## Trade-off
 

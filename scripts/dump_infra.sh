@@ -6,6 +6,7 @@ set -euo pipefail
 PROFILE="${AWS_PROFILE:-amazon-books-etl-dev}"
 REGION="${AWS_REGION:-eu-central-1}"
 ACCOUNT_ID="915238109570"
+TASK_ROLE="ECS-role-db03eec9"
 INFRA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/infra"
 
 # Atomic write: build in a temp file, rename only on success — an interrupted dump
@@ -42,8 +43,27 @@ task_definition() {
                  taskRoleArn:taskRoleArn,containerDefinitions:containerDefinitions}'
 }
 
+task_role_policy() {
+    # The permissions live in a customer-managed policy, so resolve the role's attachment
+    # rather than hardcoding a policy ARN, and follow its current default version.
+    local policy_arn version
+    policy_arn=$(aws iam list-attached-role-policies --role-name "$TASK_ROLE" \
+        --profile "$PROFILE" --query 'AttachedPolicies[0].PolicyArn' --output text)
+    version=$(aws iam get-policy --policy-arn "$policy_arn" \
+        --profile "$PROFILE" --query 'Policy.DefaultVersionId' --output text)
+    aws iam get-policy-version --policy-arn "$policy_arn" --version-id "$version" \
+        --profile "$PROFILE" --query 'PolicyVersion.Document'
+}
+
+task_trust_policy() {
+    aws iam get-role --role-name "$TASK_ROLE" \
+        --profile "$PROFILE" --query 'Role.AssumeRolePolicyDocument'
+}
+
 echo "Dumping infrastructure snapshots (profile=$PROFILE region=$REGION)"
 dump stepfunctions-amazon-books-pipeline.json state_machine
 dump eventbridge-amazon-books-schedule.json schedule_rule
 dump ecs-taskdef-dbt-runner.json task_definition
+dump iam-ecs-task-role-policy.json task_role_policy
+dump iam-ecs-task-trust-policy.json task_trust_policy
 echo "Done. Review with: git diff infra/"
