@@ -19,7 +19,9 @@ Migracja `amazon_books_ETL` (v1: Airflow + Postgres, on-prem) → v2 (serverless
 | I | CI/CD — GitHub Actions → deploy kodu Lambda | ⏳ zaplanowane |
 
 Infrastruktura stawiana ręcznie przez CLI/konsolę AWS (świadoma decyzja: nauka, widoczność
-każdego zasobu — nie Terraform/CDK, choć to rozwiązanie warte poznania osobno).
+każdego zasobu — nie Terraform/CDK; adopcja IaC odłożona do następnego projektu). Żeby zmiany
+w orkiestracji nie ginęły poza gitem, `infra/` trzyma **jednokierunkowe zrzuty stanu** (AWS →
+repo) odświeżane przez `scripts/dump_infra.sh` — szczegóły i trade-offy w `infra/README.md`.
 
 ```mermaid
 flowchart TD
@@ -130,6 +132,12 @@ flowchart TD
    Lambda invoke, Glue (partycje + `GetDatabase`), ECS RunTask + PassRole, Athena, S3, oraz
    `events:PutTargets/PutRule/DescribeRule` na `StepFunctionsGetEventsForECSTaskRule` (wymagane
    przez wzorzec `.sync`).
+
+   Stan `Lambda Invoke` ma **dwa bloki `Retry`**: infrastrukturalny (`Lambda.ServiceException` itd.,
+   `IntervalSeconds: 1`) i aplikacyjny (`RuntimeError`, `MaxAttempts: 2`, `IntervalSeconds: 60`).
+   Ten drugi łapie blokadę antybotową Amazona — długi odstęp jest celowy: scraper wyczerpał już
+   własny backoff (~128 s), więc natychmiastowe ponowienie trafia w tę samą falę 503 i tylko pali
+   płatny czas Lambdy.
 
 ## ⚠️ Pułapki, które już nas ugryzły (nie próbuj tego "naprawić" tymi samymi metodami)
 

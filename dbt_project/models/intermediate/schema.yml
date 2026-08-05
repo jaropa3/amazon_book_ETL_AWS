@@ -20,6 +20,12 @@ models:
 
   - name: rejected_books
     columns:
+      # Guards the merge: a non-unique key fails the incremental run with
+      # MERGE_TARGET_ROW_MULTIPLE_MATCHES, so catch it as a data test first.
+      - name: rejected_sk
+        tests:
+          - not_null
+          - unique
       - name: rejection_reason
         tests:
           - not_null
