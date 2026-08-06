@@ -146,8 +146,28 @@ def main() -> None:
 
 
 def handler(event, context):
-    """Entry point AWS Lambda. `event`/`context` niewykorzystywane — brak parametrów wejściowych.
-    To wymóg platformy: Lambda na AWS zawsze wywołuje handler z tymi dwoma argumentami, niezależnie czy funkcja ich potrzebuje."""
+    """Entry point AWS Lambda. `context` niewykorzystywany — to wymóg platformy: Lambda zawsze
+    wywołuje handler z dwoma argumentami, niezależnie czy funkcja ich potrzebuje.
+
+    `event["mode"]` wybiera zadanie: "scrape" (domyślnie) albo "compact" — obsługa warstwy raw
+    dzieli z scraperem bucket i rolę IAM, więc mieszka w tej samej funkcji zamiast w drugiej,
+    bliźniaczej. Sama logika kompakcji żyje w osobnym module.
+    """
+    mode = (event or {}).get("mode", "scrape")
+
+    if mode == "compact":
+        from compaction import compact_raw
+
+        result = compact_raw()
+        logger.info(
+            "Lambda invocation zakończona, skompaktowano %d partycji",
+            result["partitions_compacted"],
+        )
+        return result
+
+    if mode != "scrape":
+        raise ValueError(f"nieznany tryb: {mode!r} (oczekiwano 'scrape' albo 'compact')")
+
     count = scrape_to_csv()
     logger.info("Lambda invocation zakończona, zescrapowano %d książek", count)
     return {"scraped_count": count}

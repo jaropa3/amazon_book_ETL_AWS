@@ -9,7 +9,8 @@
                 "errorInfo": null,
                 "scrapedCount": null,
                 "partitionsBefore": null,
-                "partitionsAfter": null
+                "partitionsAfter": null,
+                "compactionError": null
             },
             "Next": "Lambda Invoke"
         },
@@ -94,7 +95,7 @@
                     "OutputLocation": "s3://amazon-books-etl-aws-915238109570/athena-results/"
                 }
             },
-            "Next": "GetPartitionsAfter",
+            "Next": "CompactRaw",
             "Catch": [
                 {
                     "ErrorEquals": [
@@ -107,6 +108,42 @@
                     }
                 }
             ]
+        },
+        "CompactRaw": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "arn:aws:lambda:eu-central-1:915238109570:function:amazon-books-scraper:$LATEST",
+                "Payload": {
+                    "mode": "compact"
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "GetPartitionsAfter",
+                    "Assign": {
+                        "compactionError": "{% $states.errorOutput %}"
+                    }
+                }
+            ],
+            "Next": "GetPartitionsAfter"
         },
         "GetPartitionsAfter": {
             "Type": "Task",
@@ -171,7 +208,7 @@
             "Arguments": {
                 "Bucket": "amazon-books-etl-aws-915238109570",
                 "Key": "{% 'logs/pipeline_runs/dt=' & $substring($states.context.Execution.StartTime, 0, 10) & '/' & $states.context.Execution.Name & '.json' %}",
-                "Body": "{% $string({\"run_id\": $states.context.Execution.Name, \"execution_arn\": $states.context.Execution.Id, \"start_time\": $states.context.Execution.StartTime, \"status\": $runStatus, \"error\": $errorInfo, \"scraped_count\": $scrapedCount, \"partitions_before\": $partitionsBefore, \"partitions_after\": $partitionsAfter, \"partitions_added\": ($partitionsBefore != null and $partitionsAfter != null) ? $partitionsAfter - $partitionsBefore : null, \"backlog_recovered\": ($partitionsBefore != null and $partitionsAfter != null) ? ($partitionsAfter - $partitionsBefore) > 1 : false}) %}"
+                "Body": "{% $string({\"run_id\": $states.context.Execution.Name, \"execution_arn\": $states.context.Execution.Id, \"start_time\": $states.context.Execution.StartTime, \"status\": $runStatus, \"error\": $errorInfo, \"compaction_error\": $compactionError, \"scraped_count\": $scrapedCount, \"partitions_before\": $partitionsBefore, \"partitions_after\": $partitionsAfter, \"partitions_added\": ($partitionsBefore != null and $partitionsAfter != null) ? $partitionsAfter - $partitionsBefore : null, \"backlog_recovered\": ($partitionsBefore != null and $partitionsAfter != null) ? ($partitionsAfter - $partitionsBefore) > 1 : false}) %}"
             },
             "Catch": [
                 {
