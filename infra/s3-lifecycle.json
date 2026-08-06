@@ -1,0 +1,22 @@
+{
+    "Rules": [
+        {
+            "ID": "abort-incomplete-mpu",
+            "Filter": {},
+            "Status": "Enabled",
+            "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7
+            }
+        },
+        {
+            "Expiration": {
+                "Days": 7
+            },
+            "ID": "expire-athena-query-results",
+            "Filter": {
+                "Prefix": "athena-results/"
+            },
+            "Status": "Enabled"
+        }
+    ]
+}

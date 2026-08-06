@@ -22,6 +22,7 @@ git diff infra/
 | `ecs-taskdef-dbt-runner.json` | task definition `dbt-runner` (Fargate) |
 | `iam-ecs-task-role-policy.json` | uprawnienia roli zadania ECS (S3 + Glue + Athena) |
 | `iam-ecs-task-trust-policy.json` | trust policy tej roli — `aws:SourceArn` zawęża ją do `eu-central-1` |
+| `s3-lifecycle.json` | reguły lifecycle bucketu (wygasanie wyników Atheny, przerwane multipart) |
 
 Dwa ostatnie pliki leżały wcześniej w `docker/`, choć ani `docker build`, ani runtime kontenera
 ich nie czyta — to dokumenty polityk wklejane w konsoli IAM. Były pisane ręcznie, więc mogły

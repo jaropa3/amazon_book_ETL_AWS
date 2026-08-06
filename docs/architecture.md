@@ -139,6 +139,26 @@ flowchart TD
    własny backoff (~128 s), więc natychmiastowe ponowienie trafia w tę samą falę 503 i tylko pali
    płatny czas Lambdy.
 
+9. **Log przebiegu — wzorzec watcher** (odpowiednik `trigger_rule=ALL_DONE` z Airflow ze v1).
+   Każdy stan ma `Catch: States.ALL` prowadzący do wspólnego `LogRun`, który przypisuje
+   `runStatus='failed'` i treść błędu; stan `Choice` (`CheckRunStatus`) rozstrzyga potem
+   `SucceedRun` / `FailRun`. Dzięki temu **run nieudany też zostawia wpis** — wcześniej log
+   powstawał wyłącznie na happy pathie, więc statystyka sukcesów zawsze wychodziła 100%.
+
+   Dwa szczegóły, bez których wzorzec nie działa:
+   - `InitRunVars` (stan `Pass`) przypisuje domyślne `null` **zanim** cokolwiek może paść —
+     `LogRun` czyta zmienne, których inaczej mogłoby jeszcze nie być, a arytmetyka na
+     `null` wywaliłaby sam logger dokładnie wtedy, gdy jest najbardziej potrzebny.
+   - `LogRun` ma własny `Catch` → `CheckRunStatus`: awaria logowania nie może ani zamaskować
+     pierwotnego błędu, ani zmienić udanego runu w nieudany.
+
+   `LogRun` stoi **za** `ECS RunTask`, nie przed — inaczej awarie dbt nie trafiałyby do logu.
+
+10. **Lifecycle na buckecie** — `expire-athena-query-results` kasuje obiekty pod
+    `athena-results/` po 7 dniach. Bezpieczne dopiero od momentu, gdy żadna tabela nie leży
+    już pod tym prefiksem (patrz `s3_data_dir` w `docker/profiles.yml`). `logs/pipeline_runs/`
+    i `raw/` są celowo bez wygasania — to dane, nie artefakty zapytań.
+
 ## ⚠️ Pułapki, które już nas ugryzły (nie próbuj tego "naprawić" tymi samymi metodami)
 
 - **Nie dodawaj `StartCrawler` z powrotem do regularnego przebiegu** — patrz krok 2 wyżej. To

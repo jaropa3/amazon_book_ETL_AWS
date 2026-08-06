@@ -1,7 +1,18 @@
 {
-    "Comment": "A description of my state machine",
-    "StartAt": "Lambda Invoke",
+    "Comment": "Scrape -> land partitions -> dbt. Every path ends at LogRun (watcher pattern), so failed runs are logged too.",
+    "StartAt": "InitRunVars",
     "States": {
+        "InitRunVars": {
+            "Type": "Pass",
+            "Assign": {
+                "runStatus": "succeeded",
+                "errorInfo": null,
+                "scrapedCount": null,
+                "partitionsBefore": null,
+                "partitionsAfter": null
+            },
+            "Next": "Lambda Invoke"
+        },
         "Lambda Invoke": {
             "Type": "Task",
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -34,7 +45,19 @@
                     "Comment": "Amazon anti-bot (503) \u2014 pusty scrape jest przejsciowy, nie defekt kodu"
                 }
             ],
-            "Next": "GetPartitionsBefore"
+            "Next": "GetPartitionsBefore",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "LogRun",
+                    "Assign": {
+                        "runStatus": "failed",
+                        "errorInfo": "{% $states.errorOutput %}"
+                    }
+                }
+            ]
         },
         "GetPartitionsBefore": {
             "Type": "Task",
@@ -47,7 +70,19 @@
                 "partitionsBefore": "{% $count($states.result.Partitions) %}",
                 "scrapedCount": "{% $states.input.scraped_count ? $states.input.scraped_count : null %}"
             },
-            "Next": "MsckRepair"
+            "Next": "MsckRepair",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "LogRun",
+                    "Assign": {
+                        "runStatus": "failed",
+                        "errorInfo": "{% $states.errorOutput %}"
+                    }
+                }
+            ]
         },
         "MsckRepair": {
             "Type": "Task",
@@ -59,7 +94,19 @@
                     "OutputLocation": "s3://amazon-books-etl-aws-915238109570/athena-results/"
                 }
             },
-            "Next": "GetPartitionsAfter"
+            "Next": "GetPartitionsAfter",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "LogRun",
+                    "Assign": {
+                        "runStatus": "failed",
+                        "errorInfo": "{% $states.errorOutput %}"
+                    }
+                }
+            ]
         },
         "GetPartitionsAfter": {
             "Type": "Task",
@@ -71,17 +118,19 @@
             "Assign": {
                 "partitionsAfter": "{% $count($states.result.Partitions) %}"
             },
-            "Next": "WriteRunLog"
-        },
-        "WriteRunLog": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
-            "Arguments": {
-                "Bucket": "amazon-books-etl-aws-915238109570",
-                "Key": "{% 'logs/pipeline_runs/dt=' & $substring($states.context.Execution.StartTime, 0, 10) & '/' & $states.context.Execution.Name & '.json' %}",
-                "Body": "{% $string({\"run_id\": $states.context.Execution.Name, \"execution_arn\": $states.context.Execution.Id, \"start_time\": $states.context.Execution.StartTime, \"scraped_count\": $scrapedCount, \"partitions_before\": $partitionsBefore, \"partitions_after\": $partitionsAfter, \"partitions_added\": $partitionsAfter - $partitionsBefore, \"backlog_recovered\": ($partitionsAfter - $partitionsBefore) > 1}) %}"
-            },
-            "Next": "ECS RunTask"
+            "Next": "ECS RunTask",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "LogRun",
+                    "Assign": {
+                        "runStatus": "failed",
+                        "errorInfo": "{% $states.errorOutput %}"
+                    }
+                }
+            ]
         },
         "ECS RunTask": {
             "Type": "Task",
@@ -102,7 +151,55 @@
                     }
                 }
             },
-            "End": true
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "LogRun",
+                    "Assign": {
+                        "runStatus": "failed",
+                        "errorInfo": "{% $states.errorOutput %}"
+                    }
+                }
+            ],
+            "Next": "LogRun"
+        },
+        "LogRun": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+            "Arguments": {
+                "Bucket": "amazon-books-etl-aws-915238109570",
+                "Key": "{% 'logs/pipeline_runs/dt=' & $substring($states.context.Execution.StartTime, 0, 10) & '/' & $states.context.Execution.Name & '.json' %}",
+                "Body": "{% $string({\"run_id\": $states.context.Execution.Name, \"execution_arn\": $states.context.Execution.Id, \"start_time\": $states.context.Execution.StartTime, \"status\": $runStatus, \"error\": $errorInfo, \"scraped_count\": $scrapedCount, \"partitions_before\": $partitionsBefore, \"partitions_after\": $partitionsAfter, \"partitions_added\": ($partitionsBefore != null and $partitionsAfter != null) ? $partitionsAfter - $partitionsBefore : null, \"backlog_recovered\": ($partitionsBefore != null and $partitionsAfter != null) ? ($partitionsAfter - $partitionsBefore) > 1 : false}) %}"
+            },
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "CheckRunStatus"
+                }
+            ],
+            "Next": "CheckRunStatus"
+        },
+        "CheckRunStatus": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Condition": "{% $runStatus = 'failed' %}",
+                    "Next": "FailRun"
+                }
+            ],
+            "Default": "SucceedRun"
+        },
+        "FailRun": {
+            "Type": "Fail",
+            "Error": "PipelineFailed",
+            "Cause": "A pipeline state failed; see the run log in s3://.../logs/pipeline_runs/"
+        },
+        "SucceedRun": {
+            "Type": "Succeed"
         }
     },
     "QueryLanguage": "JSONata"

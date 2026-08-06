@@ -7,6 +7,7 @@ PROFILE="${AWS_PROFILE:-amazon-books-etl-dev}"
 REGION="${AWS_REGION:-eu-central-1}"
 ACCOUNT_ID="915238109570"
 TASK_ROLE="ECS-role-db03eec9"
+BUCKET="amazon-books-etl-aws-915238109570"
 INFRA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/infra"
 
 # Atomic write: build in a temp file, rename only on success — an interrupted dump
@@ -60,10 +61,16 @@ task_trust_policy() {
         --profile "$PROFILE" --query 'Role.AssumeRolePolicyDocument'
 }
 
+bucket_lifecycle() {
+    aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET" \
+        --profile "$PROFILE" --region "$REGION" --query '{Rules:Rules}'
+}
+
 echo "Dumping infrastructure snapshots (profile=$PROFILE region=$REGION)"
 dump stepfunctions-amazon-books-pipeline.json state_machine
 dump eventbridge-amazon-books-schedule.json schedule_rule
 dump ecs-taskdef-dbt-runner.json task_definition
 dump iam-ecs-task-role-policy.json task_role_policy
 dump iam-ecs-task-trust-policy.json task_trust_policy
+dump s3-lifecycle.json bucket_lifecycle
 echo "Done. Review with: git diff infra/"
