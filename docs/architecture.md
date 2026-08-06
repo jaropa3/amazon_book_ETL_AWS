@@ -100,9 +100,17 @@ flowchart TD
    przed/po — skok większy niż jedna nowa = odzyskane zaległe dane (odpowiednik `run_type='backlog'`
    z v1), zapisywany do logu.
 
-3. **Log przebiegu** — `WriteRunLog` zapisuje JSON do `s3://.../logs/pipeline_runs/dt=.../<run_id>.json`:
-   `run_id`, `scraped_count`, `partitions_before/after/added`, `backlog_recovered`. S3 + Athena
-   (nie DynamoDB) — spójność z resztą stacku, zero nowej usługi, zapytywalne SQL-em.
+3. **Log przebiegu** — `LogRun` zapisuje JSON do `s3://.../logs/pipeline_runs/dt=.../<run_id>.json`:
+   `run_id`, `status`, `error`, `scraped_count`, `partitions_before/after/added`,
+   `backlog_recovered`. Powstaje na **każdej** ścieżce, także błędnej (wzorzec watcher — patrz
+   punkt 9). S3 + Athena (nie DynamoDB) — spójność z resztą stacku, zero nowej usługi,
+   zapytywalne SQL-em.
+
+   > [!note] `scraped_count` jest miarą jakości, nie tylko licznikiem
+   > Amazon blokuje część stron falami `503`, więc przebieg bywa **częściowy** (~20–62 rekordy)
+   > i mimo to kończy się `succeeded`. To [świadomie zaakceptowane ograniczenie źródła](../README.md#decisions--trade-offs),
+   > nie bug do naprawienia progiem. Praktyczny skutek: pojedyncza partycja dobowa może być
+   > niepełna — kompletności szukaj w sumie przebiegów, nie w jednym.
 
 4. **Staging** (`stg_books`, widok) — typuje kolumny na dialekcie Trino: `cast(... as double)`,
    `from_iso8601_timestamp(scraped_at) at time zone 'UTC'`. Czyszczenie ceny obsługuje **wiele

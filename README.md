@@ -118,11 +118,30 @@ co godzinę wraz z pipeline'em, nie w CI.
 - **Log przebiegu do S3 + Athena, nie DynamoDB.** Zero nowej usługi, spójność z resztą stacku —
   wszystko zapytywalne tym samym SQL-em. Koszt: odczyt statusu ostatniego runu to sekundy (start
   zapytania Athena), nie milisekundy jak przy KV store — nieistotne przy sporadycznym sprawdzaniu.
+- **Zero lokalnego file handlingu — brak wzorca `raw/` → `processed/` z v1.** W v1 idempotencję
+  zapewniało fizyczne przenoszenie skonsumowanych plików CSV (`shutil.move` do
+  `processed/<data>/`, FIFO po najstarszym pliku). Tutaj zastąpiło to **partycjonowanie po dacie
+  w S3** (`raw/dt=YYYY-MM-DD/`) + idempotentny merge w dbt po kluczu biznesowym: plik zostaje
+  tam, gdzie wylądował, a "przetworzony" nie jest stanem na dysku, tylko wynikiem
+  deterministycznej transformacji. Scraper nie dotyka lokalnego dysku w ogóle — CSV powstaje w
+  pamięci (`io.StringIO`) i idzie prosto do S3, bo pod Lambdą `/var/task` jest read-only. Koszt:
+  nie da się na pierwszy rzut oka (`ls`) powiedzieć, które partycje już przeszły przez pipeline —
+  odpowiada na to dopiero log przebiegu w Athenie.
 - **Brak filtra czasowego w modelach incremental (`fct_books_history`, `rejected_books`).**
   Każdy `dbt run` skanuje całe `bronze.raw` i robi idempotentny merge po kluczu biznesowym —
   spóźniona partycja (np. po awarii wcześniejszego przebiegu) zostaje złapana automatycznie przy
   najbliższym udanym runie. To ta sama decyzja co w v1, tylko bez jawnego mechanizmu FIFO/backlog
   — ochrona jest wpisana w sposób budowania modelu, nie w osobny krok wykrywania zaległości.
+- **Niepełny scrape jest akceptowany jako sukces, nie traktowany jako błąd.** Amazon odpowiada
+  `503` falami, więc przebieg regularnie zbiera 1–5 stron z 5 (widać to w `scraped_count` w logu
+  przebiegu: od ~20 do ~62 rekordów). Rozważaną alternatywą był próg — „mniej niż X% stron =
+  rzuć wyjątek" — i **świadomie go nie wdrażam**: przy źródle, którego dostępność jest poza
+  kontrolą pipeline'u, taki próg zamienia ograniczenie źródła w kaskadę fałszywych alarmów, a
+  ponowienie i tak trafia w tę samą falę blokady. Koszt jest realny: partycja dobowa bywa
+  niekompletna, więc **te dane nadają się do analizy trendów, nie do twierdzeń o pokryciu
+  katalogu**. Wybrana ochrona jest inna niż blokowanie: godzinowy harmonogram sprawia, że
+  brakujące pozycje łapie kolejny przebieg, a merge po kluczu biznesowym nie duplikuje tych
+  już zebranych.
 
 ### Co bym poprawił
 
