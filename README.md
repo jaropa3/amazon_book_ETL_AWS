@@ -110,6 +110,17 @@ co godzinę wraz z pipeline'em, nie w CI.
   dbt-core w produkcji na AWS. Lambda ma twardy limit 15 min i koncepcyjnie nie pasuje do ETL
   (rośnie z czasem, w przeciwieństwie do scrapera o stałym rozmiarze); Glue Python Shell nie miał
   realnego pokrycia w praktyce, mimo że technicznie działa.
+- **dbt Core 1.12 (Python) + `dbt-athena-community`, migracja na Fusion / dbt Core v2 świadomie
+  odłożona.** Fusion to przepisany w Rust silnik dbt (statyczna analiza SQL przed wysłaniem do
+  hurtowni, lineage na poziomie kolumn); od czerwca 2026 jego fundament jest też podstawą dbt Core
+  v2.0 na Apache 2.0. Przejście jest tu dziś **niemożliwe technicznie**, nie tylko niepriorytetowe:
+  Fusion wymaga adaptera napisanego w Rust (połączenie przez ADBC), a adapter dla Atheny nie
+  istnieje — [issue #829](https://github.com/dbt-labs/dbt-fusion/issues/829) jest otwarte od
+  2025-09-26 bez przypisanej osoby, milestone'u i daty. To realny koszt wyboru niszowego silnika
+  (Athena/Trino) zamiast Snowflake/BigQuery/Databricks, które wsparcie dostały pierwsze: **wolniejszy
+  dostęp do nowości w ekosystemie**. Świadomie nie optymalizuję dziś projektu „pod Fusion", bo
+  byłoby to strojenie pod hipotezę; wersja 1.12 jest jednocześnie rekomendowanym przystankiem na
+  ścieżce migracji do v2, więc przejście nie będzie wymagało przepisywania modeli.
 - **Step Functions + EventBridge, nie MWAA (zarządzany Airflow).** MWAA rozlicza się za
   **istnienie** środowiska (~$0.49/h, 24/7), nie za wykonanie — nieproporcjonalny koszt dla
   rzadkiego, godzinowego pipeline'u. Koszt: mniej "gotowej z pudełka" obserwowalności niż Airflow

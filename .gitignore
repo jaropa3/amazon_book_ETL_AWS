@@ -35,6 +35,7 @@ CLAUDE.md
 # docs — tylko architecture.md w repo
 docs/*
 !docs/architecture.md
+!docs/RUNBOOK.md
 
 # moje notatki
 NOTEBOOK.md
